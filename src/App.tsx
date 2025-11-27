@@ -5,8 +5,8 @@ import {
   LogOut, Menu, X, Navigation, ChevronRight, 
   Bell, CheckCircle, AlertCircle, PhoneCall, UserPlus,
   Moon, Sun, Volume2, Plus, Trash2, Loader2, MapPin, Flag, Eye,
-  ArrowRight, CornerUpRight, Clock, Phone, Wifi, WifiOff, Download,
-  BarChart3, Calendar, Zap, Car, Bike, Bus, Footprints, Sliders
+  ArrowRight, CornerUpRight, Clock, Phone, WifiOff, Download,
+  Car, Bike, Bus, Footprints, Sliders
 } from 'lucide-react';
 import { MOCK_INCIDENTS, MOCK_USER } from './mockData';
 import type { Incident, Route, User, Page, AppSettings, Contact } from './types';
