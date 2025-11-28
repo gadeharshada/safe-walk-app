@@ -166,7 +166,7 @@ const apiService = {
   getIncidents: async (): Promise<Incident[]> => {
     if (!navigator.onLine) return [...MOCK_INCIDENTS, ...storage.getPendingIncidents()];
     try {
-        const response = await fetch(`${API_BASE_URL}/incidents`);
+        const response = await fetch(`${API_BASE_URL}/incident`);
         if (!response.ok) throw new Error("Failed to fetch incidents");
         const data = await response.json();
         return data.length ? data : MOCK_INCIDENTS;
@@ -182,7 +182,7 @@ const apiService = {
         return true;
     }
     try {
-        await fetch(`${API_BASE_URL}/incidents`, {
+        await fetch(`${API_BASE_URL}/incident`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(incident)
@@ -237,7 +237,7 @@ const apiService = {
          // For now assumes /incidents accepts POST
          for (const inc of pending) {
              const { pendingSync, ...cleanInc } = inc;
-             await fetch(`${API_BASE_URL}/incidents`, {
+             await fetch(`${API_BASE_URL}/incident`, {
                  method: 'POST',
                  headers: {'Content-Type': 'application/json'},
                  body: JSON.stringify(cleanInc)
