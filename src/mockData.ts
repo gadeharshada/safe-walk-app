@@ -1,3 +1,4 @@
+
 import type { Incident, Route, User } from './types';
 
 export const MOCK_USER: User = {
@@ -34,7 +35,23 @@ export const MOCK_ROUTES: Route[] = [
     incidents: 0,
     color: '#10B981', // green
     description: 'Well-lit main avenues with security patrols.',
-    coordinates: [[40.7580, -73.9855], [40.7610, -73.9820], [40.7650, -73.9800]] 
+    coordinates: [
+        [40.7580, -73.9855], 
+        [40.7590, -73.9850],
+        [40.7600, -73.9840],
+        [40.7610, -73.9820], 
+        [40.7625, -73.9815],
+        [40.7640, -73.9810],
+        [40.7650, -73.9800]
+    ],
+    instructions: [
+        "Head northeast towards Broadway",
+        "Continue straight past the library",
+        "Keep right at the fork",
+        "Turn slightly left onto Main Ave",
+        "Continue for 200m",
+        "Destination is on your right"
+    ]
   },
   {
     id: 2,
@@ -50,7 +67,20 @@ export const MOCK_ROUTES: Route[] = [
     incidents: 2,
     color: '#F59E0B', // yellow
     description: 'Shorter but passes through some dimmer side streets.',
-    coordinates: [[40.7580, -73.9855], [40.7590, -73.9900], [40.7620, -73.9920]]
+    coordinates: [
+        [40.7580, -73.9855], 
+        [40.7585, -73.9870],
+        [40.7590, -73.9900], 
+        [40.7605, -73.9910],
+        [40.7620, -73.9920]
+    ],
+    instructions: [
+        "Head west on Campus Dr",
+        "Turn right onto 7th Ave",
+        "Continue straight for 3 blocks",
+        "Turn left onto W 42nd St",
+        "Arrive at destination"
+    ]
   },
   {
     id: 3,
@@ -66,6 +96,19 @@ export const MOCK_ROUTES: Route[] = [
     incidents: 5,
     color: '#EF4444', // red
     description: 'Quickest path but crosses high-crime alleyways.',
-    coordinates: [[40.7580, -73.9855], [40.7550, -73.9850], [40.7500, -73.9900]]
+    coordinates: [
+        [40.7580, -73.9855], 
+        [40.7565, -73.9852],
+        [40.7550, -73.9850], 
+        [40.7525, -73.9875],
+        [40.7500, -73.9900]
+    ],
+    instructions: [
+        "Head south towards the alley",
+        "Take the shortcut through the park",
+        "Caution: Low lighting area",
+        "Turn right onto backstreet",
+        "Arrive at destination"
+    ]
   }
 ];

@@ -1,3 +1,4 @@
+
 export interface Incident {
   id: number;
   type: 'Crime' | 'Accident' | 'Lighting' | 'Harassment' | 'Other';
@@ -8,15 +9,17 @@ export interface Incident {
   lng: number;
   timestamp: string;
   description: string;
+  pendingSync?: boolean; // New field to track offline status
 }
 
 export interface Route {
+  instructions: any;
   id: number;
   name: string;
   start: string;
   end: string;
-  distance: string; // Changed to string for formatted "3.2 km"
-  duration: string; // Changed to string for formatted "15 min"
+  distance: string; // "3.2 km"
+  duration: string; // "15 min"
   safetyScore: number;
   lighting: number;
   traffic: number;
@@ -25,6 +28,14 @@ export interface Route {
   color: string;
   description: string;
   coordinates: [number, number][]; // [lat, lng]
+}
+
+export interface Trip {
+  id: number;
+  route: Route;
+  startTime: string;
+  endTime: string;
+  completed: boolean;
 }
 
 export interface Contact {
@@ -56,4 +67,4 @@ export interface AppSettings {
   }
 }
 
-export type Page = 'landing' | 'login' | 'signup' | 'map' | 'safety_hub' | 'offline' | 'contacts' | 'profile' | 'settings';
+export type Page = 'landing' | 'login' | 'signup' | 'map' | 'safety_hub' | 'offline' | 'contacts' | 'profile' | 'settings' | 'history';
