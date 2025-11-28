@@ -166,7 +166,7 @@ const apiService = {
   getIncidents: async (): Promise<Incident[]> => {
     if (!navigator.onLine) return [...MOCK_INCIDENTS, ...storage.getPendingIncidents()];
     try {
-        const response = await fetch(`${API_BASE_URL}/incident`);
+        const response = await fetch(`${API_BASE_URL}/incident/nearby?lat=18.5204&lon=73.8567&radius=10000)`);
         if (!response.ok) throw new Error("Failed to fetch incidents");
         const data = await response.json();
         return data.length ? data : MOCK_INCIDENTS;
@@ -182,7 +182,7 @@ const apiService = {
         return true;
     }
     try {
-        await fetch(`${API_BASE_URL}/incident`, {
+        await fetch(`${API_BASE_URL}/incident/nearby?lat=18.5204&lon=73.8567&radius=10000)`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(incident)
@@ -217,7 +217,7 @@ const apiService = {
   triggerSOS: async (location: {lat: number, lng: number}) => {
     console.log("SOS Signal sent to backend at", location);
     try {
-        fetch(`${API_BASE_URL}/sos`, {
+        fetch(`${API_BASE_URL}/incident/report`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ location, timestamp: new Date().toISOString() })
@@ -237,7 +237,7 @@ const apiService = {
          // For now assumes /incidents accepts POST
          for (const inc of pending) {
              const { pendingSync, ...cleanInc } = inc;
-             await fetch(`${API_BASE_URL}/incident`, {
+             await fetch(`${API_BASE_URL}/incident/nearby?lat=18.5204&lon=73.8567&radius=10000)`, {
                  method: 'POST',
                  headers: {'Content-Type': 'application/json'},
                  body: JSON.stringify(cleanInc)
