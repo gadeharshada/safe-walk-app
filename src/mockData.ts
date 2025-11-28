@@ -5,6 +5,7 @@ export const MOCK_USER: User = {
   id: 'user_001',
   name: 'Sarah Johnson',
   email: 'sarah.j@example.com',
+  // phone: '+1-555-0123', // Added phone number
   userType: 'Student',
   emergencyContacts: [
     { id: 1, name: 'Mom', phone: '+1-555-0001', relationship: 'Family', isPrimary: true, verified: true },
