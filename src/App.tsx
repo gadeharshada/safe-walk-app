@@ -206,7 +206,6 @@ const apiService = {
         })
       });
       
-      const data = await response.json();
       if(response.ok) {
           console.log("Contacts synced to DB");
           // Update local cache so it persists on refresh immediately
