@@ -30,6 +30,7 @@ export interface Route {
   coordinates: [number, number][]; // [lat, lng]
 }
 
+
 export interface Trip {
   id: number;
   route: Route;

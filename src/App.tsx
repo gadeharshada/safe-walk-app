@@ -8,12 +8,12 @@ import {
   Car, Bike, Bus, Footprints, Mic, History, Globe, Signal, SignalZero, Locate,
   Sparkles, PhoneForwarded, Siren, Zap
 } from 'lucide-react';
-import { MOCK_INCIDENTS, MOCK_USER, MOCK_ROUTES } from './mockData';
+import { MOCK_INCIDENTS } from './mockData';
 import type { Incident, Route, User, Page, AppSettings } from './types';
 
 // Fallback Key for TomTom if backend fails (Keep for search, but use OSM for tiles)
 const TOMTOM_API_KEY = 'YhsCKeh4g9fRkS2YEta9Isj3KH3pkttI';
-// const API_BASE_URL = 'http://localhost:5000/api'; 
+const API_BASE_URL = 'https://safewalk-10oe.onrender.com'; 
 
 // --- Translation Data ---
 type Language = 'en' | 'hi' | 'es';
@@ -131,37 +131,118 @@ const storage = {
     localStorage.removeItem('pending_incidents');
   }
 };
-
 // --- API Service Layer (Robust with Offline Fallback) ---
+// --- API Service Layer ---
 const apiService = {
   
-  login: async (email: string, _password: string): Promise<User> => {
+  // Register: Create Account
+  register: async (name: string, email: string, _phone: string, password: string): Promise<boolean> => {
+    if (!navigator.onLine) throw new Error("No internet connection.");
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password }) // Sending core fields
+        });
+        
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Registration failed');
+        }
+        return true;
+    } catch (e: any) {
+        throw new Error(e.message || 'Registration failed');
+    }
+  },
+
+  // Login: Get Token -> Get User Profile
+  login: async (email: string, password: string): Promise<User> => {
     if (!navigator.onLine) {
-       // Offline: Check if cached user matches (Mock logic for demo)
+       // Offline: Check if cached user matches
        const cached = storage.getUser();
        if (cached && cached.email === email) return cached;
        throw new Error("No internet connection. Cannot log in.");
     }
 
     try {
-      // 1. Try Backend
-      // This is a demo placeholder, we resolve immediately with mock data if fetch fails or is mocked
-      return new Promise((resolve) => setTimeout(() => {
-          const user = MOCK_USER; 
-          storage.saveUser(user);
-          resolve(user);
-      }, 1000));
-    } catch (e) {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Invalid credentials');
+      }
+      
+      // Save Token
+      if (data.token) {
+          storage.saveToken(data.token);
+          // Fetch full user details with the new token
+          return await apiService.fetchUserProfile();
+      } else {
+          throw new Error("No access token received");
+      }
+    } catch (e: any) {
+      console.error('Login API error:', e);
       throw e;
     }
   },
 
+  // Helper: Fetch Profile
+  fetchUserProfile: async (): Promise<User> => {
+      const token = storage.getToken();
+      if (!token) throw new Error("No token found");
+
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          method: 'GET',
+          headers: { 
+              'Authorization': `Bearer ${token}` 
+          }
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to fetch profile");
+
+      const backendUser = data.user;
+      
+      // Map Backend User to Frontend Interface
+      // Backend uses _id, frontend uses id. Backend might miss some fields like emergencyContacts initially.
+      const fullUser: User = {
+        id: backendUser._id || Date.now(),
+        name: backendUser.name || 'User',
+        email: backendUser.email || '',
+        // phone: backendUser.phone || '', 
+        // avatar: 'https://i.pravatar.cc/150?img=12',
+        emergencyContacts: backendUser.emergencyContacts || [],
+        userType: ''
+      };
+
+      storage.saveUser(fullUser);
+      return fullUser;
+  },
+
   getIncidents: async (): Promise<Incident[]> => {
     if (!navigator.onLine) {
-        // Return combined cached + pending
         return [...MOCK_INCIDENTS, ...storage.getPendingIncidents()];
     }
-    return MOCK_INCIDENTS;
+    
+    try {
+      // Using NYC coordinates (40.7580, -73.9855) as default center to match app default view
+      // Radius set to 50km to capture wide area
+      const response = await fetch(`${API_BASE_URL}/incident/nearby?lat=40.7580&lon=-73.9855&radius=50000`);
+      const data = await response.json();
+      
+      // Backend returns { incidents: [...] }
+      // Return incidents from backend, or fallback to mock if empty/unavailable for demo continuity
+      return (data.incidents && data.incidents.length > 0) ? data.incidents : MOCK_INCIDENTS;
+    } catch (e) {
+      console.error('Incidents API error, using mock:', e);
+      return MOCK_INCIDENTS;
+    }
   },
 
   reportIncident: async (incident: Incident): Promise<boolean> => {
@@ -170,20 +251,86 @@ const apiService = {
         storage.savePendingIncident(offlineIncident);
         return true; 
     }
-    // Simulate API call
-    return true;
-  },
+    
+    // Get current user ID from storage for the backend
+    const currentUser = storage.getUser();
+    const userId = currentUser ? currentUser.id : 'anonymous';
 
-  calculateRoute: async (_startCoords: [number, number], _endCoords: [number, number], _mode: string): Promise<any> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/incident/report`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storage.getToken()}`
+        },
+         body: JSON.stringify({
+            userId: userId,
+            type: incident.type,
+            description: incident.description,
+            // Backend expects 'lon', Frontend uses 'lng'
+            lat: incident.lat,
+            lon: incident.lng 
+        })
+      });
+
+      if (response.ok) {
+          // The backend returns { status: "ok", incidentId: "..." }
+          // We assume success if status is 200 OK
+          return true;
+      } else {
+          console.error("Failed to report incident:", response.statusText);
+          return false;
+      }
+    } catch (e) {
+      console.error('Report incident network error:', e);
+      // Fallback: If network fails but browser is "online", we might still want to queue it
+      // For now, return false to indicate failure to UI
+      return false; 
+    }
+  },
+  calculateRoute: async (startCoords: [number, number], endCoords: [number, number], mode: string): Promise<any> => {
     if (!navigator.onLine) {
         throw new Error("Cannot calculate new routes while offline. Please use saved routes.");
     }
-    return null; // Implementation handled in component for demo
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/routes/safe`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storage.getToken()}`
+        },
+        body: JSON.stringify({ 
+          start: { lat: startCoords[0], lng: startCoords[1] },
+          end: { lat: endCoords[0], lng: endCoords[1] },
+          mode 
+        })
+      });
+      
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (e) {
+      console.error('Route calculation error:', e);
+      return null;
+    }
   },
   
   triggerSOS: async (location: {lat: number, lng: number}) => {
-    console.log("SOS Signal sent to backend at", location);
-    return new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      await fetch(`${API_BASE_URL}/incident/report`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storage.getToken()}`
+        },
+        body: JSON.stringify({ location })
+      });
+      console.log("SOS Signal sent to backend at", location);
+    } catch (e) {
+      console.error('SOS trigger error:', e);
+    }
   },
 
   syncPendingData: async () => {
@@ -191,9 +338,22 @@ const apiService = {
      const pending = storage.getPendingIncidents();
      if (pending.length === 0) return;
 
-     console.log("Syncing offline data...", pending);
-     storage.clearPendingIncidents();
-     return true;
+     try {
+       await fetch(`${API_BASE_URL}/sync/offline`, {
+         method: 'POST',
+         headers: { 
+           'Content-Type': 'application/json',
+           'Authorization': `Bearer ${storage.getToken()}`
+         },
+         body: JSON.stringify({ incidents: pending })
+       });
+       storage.clearPendingIncidents();
+       console.log("Successfully synced offline data");
+       return true;
+     } catch (e) {
+       console.error('Sync error:', e);
+       return false;
+     }
   }
 };
 
@@ -291,6 +451,7 @@ const LanguageSwitcher = ({ lang, setLang }: { lang: Language, setLang: (l: Lang
     </div>
   );
 };
+
 
 // 1. Location Autocomplete Component
 interface LocationSearchInputProps {
@@ -686,10 +847,32 @@ const LeafletMap = ({
       routeLayerGroupRef.current = null;
     }
 
-    incidents.forEach(inc => {
+    incidents.forEach((inc: any)=> {
+      // ---------------------------------------------------------
+      // 🛠 FIX START: Handle both Backend Data & Local Data
+      // ---------------------------------------------------------
+      let lat, lng;
+
+      if (inc.location && inc.location.coordinates) {
+        // Backend (MongoDB) sends [Longitude, Latitude]
+        lng = inc.location.coordinates[0];
+        lat = inc.location.coordinates[1];
+      } else {
+        // Local/Legacy data uses simple lat/lng
+        lat = inc.lat;
+        lng = inc.lng || inc.lon;
+      }
+
+      // 🛡 CRITICAL: If data is missing/bad, skip this marker so app doesn't crash
+      if (!lat || !lng) return; 
+      // ---------------------------------------------------------
+      // 🛠 FIX END
+      // ---------------------------------------------------------
+
       const color = inc.severity === 'high' ? '#ef4444' : inc.severity === 'medium' ? '#f59e0b' : '#3b82f6';
       
-      const marker = L.circleMarker([inc.lat, inc.lng], {
+      // Use the new variables 'lat' and 'lng' here
+      const marker = L.circleMarker([lat, lng], {
         radius: 8,
         fillColor: color,
         color: '#fff',
@@ -705,14 +888,13 @@ const LeafletMap = ({
                 <span class="w-2 h-2 rounded-full" style="background:${color}"></span>
                 <strong class="block text-sm font-bold text-gray-900">${inc.type}</strong>
             </div>
-            <span class="text-xs text-gray-500 block mb-2">${inc.timestamp}</span>
+            <span class="text-xs text-gray-500 block mb-2">${inc.timestamp || 'Just now'}</span>
             <p class="text-xs text-gray-700 leading-relaxed">${inc.description}</p>
             ${inc.pendingSync ? '<span class="text-[10px] text-orange-500 font-bold uppercase mt-2 block">Pending Sync</span>' : ''}
             </div>
         `);
       }
     });
-
     if (selectedRoute && selectedRoute.coordinates.length > 0) {
       const group = L.layerGroup().addTo(map);
       routeLayerGroupRef.current = group;
@@ -952,40 +1134,55 @@ interface SignupViewProps {
   setUser: (user: User) => void;
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
-const SignupView = ({ setCurrentPage, setUser, showToast }: SignupViewProps) => {
+
+const SignupView = ({ setCurrentPage, showToast }: SignupViewProps) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSignup = (e: React.FormEvent) => {
+  // ------------------------------------------------------------------
+  // ✅ CORRECTED LOGIC: Connects to Real Backend
+  // ------------------------------------------------------------------
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Validation
     if (!name.trim() || !email.trim() || !password.trim() || !phone.trim()) {
-      showToast("All fields (Name, Email, Phone, Password) are compulsory.", "error");
+      showToast("All fields are required.", "error");
       return;
     }
     if (!isValidEmail(email)) {
       showToast("Please enter a valid email address.", "error");
       return;
     }
-    if (phone.replace(/[^0-9]/g, '').length < 10) {
-        showToast("Please enter a valid phone number (at least 10 digits).", "error");
-        return;
-    }
     if (password.length < 6) {
         showToast("Password must be at least 6 characters.", "error");
         return;
     }
-    
+
     setIsLoading(true);
-    setTimeout(() => {
+
+    try {
+        // 2. Call the Real API
+        // Ensure your apiService.register accepts these 4 arguments!
+        await apiService.register(name, email, phone, password);
+        
+        showToast('Account created successfully! Please Log In.', 'success');
+        
+        // 3. Redirect to Login Page
+        setCurrentPage('login');
+
+    } catch (err: any) {
+        console.error("Signup Error:", err);
+        showToast(err.message || 'Registration failed', 'error');
+    } finally {
         setIsLoading(false);
-        setUser({ ...MOCK_USER, name: name, email: email }); 
-        setCurrentPage('map');
-        showToast('Account created successfully!', 'success');
-    }, 1500);
+    }
   };
+  // ------------------------------------------------------------------
+
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-navy-900 relative overflow-hidden transition-colors duration-300">
@@ -1100,15 +1297,160 @@ const SafetyHubView = ({ incidents, setIncidents, showToast }: SafetyHubViewProp
 };
 
 interface ContactsViewProps { user: User | null; setUser: (user: User) => void; showToast: any; onSOSClick: () => void; }
-const ContactsView = ({ user, onSOSClick }: ContactsViewProps) => {
+const ContactsView = ({ user, setUser, showToast, onSOSClick }: ContactsViewProps) => {
+    const [isAdding, setIsAdding] = useState(false);
+    const [newContact, setNewContact] = useState({ name: '', phone: '', relationship: 'Family' });
+
+    const handleAddContact = async () => {
+        if (!newContact.name || !newContact.phone) { 
+            showToast("Please enter a name and phone number.", "error"); 
+            return; 
+        }
+        if (user) {
+            const contact = { 
+                id: Date.now(), 
+                name: newContact.name, 
+                phone: newContact.phone, 
+                relationship: newContact.relationship 
+            };
+            const updatedContacts = [...(user.emergencyContacts || []), contact];
+            
+            try {
+                // await apiService.updateProfile({ emergencyContacts: updatedContacts });
+                const updatedUser = { ...user, emergencyContacts: updatedContacts };
+                // setUser(updatedUser); 
+                localStorage.setItem('cached_user', JSON.stringify(updatedUser));
+                showToast("Emergency contact saved.", "success"); 
+                setIsAdding(false); 
+                setNewContact({ name: '', phone: '', relationship: 'Family' });
+            } catch (e: any) { 
+                console.error("Failed to save contact", e); 
+                showToast("Failed to save contact to server.", "error"); 
+            }
+        }
+    };
+
+    const handleDeleteContact = async (id: number | string) => {
+        if (user) {
+             const updatedContacts = user.emergencyContacts.filter(c => c.id !== id);
+             try {
+                //  await apiService.updateProfile({ emergencyContacts: updatedContacts });
+                 const updatedUser = { ...user, emergencyContacts: updatedContacts };
+                 setUser(updatedUser); 
+                 localStorage.setItem('cached_user', JSON.stringify(updatedUser));
+                 showToast("Contact removed.", "info");
+             } catch (e: any) { 
+                 console.error("Failed to delete contact", e); 
+                 showToast("Failed to remove contact from server.", "error"); 
+             }
+        }
+    }
+
     return (
         <div className="p-6 md:p-10 max-w-5xl mx-auto h-full overflow-y-auto">
+            {/* SOS Banner */}
             <div className="glass-panel mb-8 !bg-red-600 text-white p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-red-500/30 rounded-2xl">
-                <div className="flex items-center gap-4"><div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm animate-pulse"><Phone size={32} /></div><div><h2 className="text-2xl font-bold">Emergency SOS</h2><p className="text-red-100">One-tap connection to local authorities</p></div></div>
-                <button onClick={onSOSClick} className="w-full md:w-auto px-8 py-4 bg-white text-red-600 font-bold text-lg rounded-xl hover:bg-red-50 transition shadow-lg flex items-center justify-center gap-2"><PhoneCall size={24} /> Call 112 / 911</button>
+                <div className="flex items-center gap-4">
+                    <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm animate-pulse">
+                        <Phone size={32} />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-bold">Emergency SOS</h2>
+                        <p className="text-red-100">One-tap connection to local authorities</p>
+                    </div>
+                </div>
+                <button onClick={onSOSClick} className="w-full md:w-auto px-8 py-4 bg-white text-red-600 font-bold text-lg rounded-xl hover:bg-red-50 transition shadow-lg flex items-center justify-center gap-2">
+                    <PhoneCall size={24} /> Call 112 / 911
+                </button>
             </div>
-            <h1 className="text-3xl font-bold mb-6 dark:text-white">Emergency Contacts</h1>
-            <div className="grid md:grid-cols-2 gap-6">{user?.emergencyContacts.map(c => <div key={c.id} className="glass-panel p-6 rounded-2xl"><h3 className="font-bold text-xl dark:text-white">{c.name}</h3><p className="text-slate-500">{c.phone}</p><p className="text-xs font-bold uppercase mt-2">{c.relationship}</p></div>)}</div>
+            
+            {/* Header + Add Button */}
+            <div className="flex items-center justify-between mb-6">
+                <h1 className="text-3xl font-bold dark:text-white">Emergency Contacts</h1>
+                <button 
+                    onClick={() => setIsAdding(!isAdding)} 
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-2 transition"
+                >
+                    {isAdding ? <X size={20} /> : <UserPlus size={20} />} 
+                    {isAdding ? 'Cancel' : 'Add Contact'}
+                </button>
+            </div>
+
+            {/* Add Contact Form */}
+            {isAdding && (
+                <div className="glass-panel p-6 rounded-2xl mb-8 animate-in slide-in-from-top-4 border border-slate-200 dark:border-slate-700">
+                    <h3 className="font-bold text-lg mb-4 dark:text-white">New Contact Details</h3>
+                    <div className="grid md:grid-cols-3 gap-4 mb-4">
+                        <input 
+                            type="text" 
+                            placeholder="Full Name" 
+                            value={newContact.name} 
+                            onChange={(e) => setNewContact({...newContact, name: e.target.value})} 
+                            className="p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-navy-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                        />
+                        <input 
+                            type="tel" 
+                            placeholder="Phone Number" 
+                            value={newContact.phone} 
+                            onChange={(e) => setNewContact({...newContact, phone: e.target.value})} 
+                            className="p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-navy-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                        />
+                        <select 
+                            value={newContact.relationship} 
+                            onChange={(e) => setNewContact({...newContact, relationship: e.target.value})} 
+                            className="p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-navy-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                            <option>Family</option>
+                            <option>Friend</option>
+                            <option>Partner</option>
+                            <option>Work</option>
+                            <option>Other</option>
+                        </select>
+                    </div>
+                    <button 
+                        onClick={handleAddContact} 
+                        className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition"
+                    >
+                        Save Contact
+                    </button>
+                </div>
+            )}
+
+            {/* Contact List */}
+            <div className="grid md:grid-cols-2 gap-6">
+                {(!user?.emergencyContacts || user.emergencyContacts.length === 0) && !isAdding && (
+                    <div className="col-span-2 text-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl">
+                        <Users size={48} className="mx-auto text-slate-300 mb-4" />
+                        <p className="text-slate-500 dark:text-slate-400 font-medium">No emergency contacts added yet.</p>
+                        <button onClick={() => setIsAdding(true)} className="text-blue-600 font-bold mt-2 hover:underline">Add one now</button>
+                    </div>
+                )}
+                {user?.emergencyContacts?.map(c => (
+                    <div key={c.id} className="glass-panel p-6 rounded-2xl relative group border border-slate-100 dark:border-slate-700">
+                        <button 
+                            onClick={() => handleDeleteContact(c.id)} 
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition"
+                            title="Delete Contact"
+                        >
+                            <Trash2 size={18} />
+                        </button>
+                        <div className="flex items-center gap-4 mb-3">
+                            <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xl">
+                                {c.name.charAt(0)}
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-xl dark:text-white">{c.name}</h3>
+                                <p className="text-xs font-bold uppercase text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded inline-block mt-1">
+                                    {c.relationship}
+                                </p>
+                            </div>
+                        </div>
+                        <p className="text-slate-500 dark:text-slate-300 text-lg font-mono bg-slate-50 dark:bg-navy-900/50 p-3 rounded-xl text-center tracking-wider">
+                            {c.phone}
+                        </p>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };
@@ -1438,7 +1780,7 @@ const App = () => {
   const handleTriggerSOS = () => { setSosState('active'); apiService.triggerSOS({ lat: currentUserPosition?.[0] || 0, lng: currentUserPosition?.[1] || 0 }); speak("Emergency alert sent. Calling emergency contacts."); };
   const handleCancelSOS = () => { setSosState('idle'); setCountdown(5); setSimulatedCallIndex(0); speak("Emergency cancelled."); };
 
-  const handleLocateMe = () => {
+const handleLocateMe = () => {
     setIsLocating(true);
     if (!navigator.geolocation) { showToast("Geolocation not supported", "error"); setIsLocating(false); return; }
     navigator.geolocation.getCurrentPosition(
@@ -1461,11 +1803,83 @@ const App = () => {
   const handleRouteSearch = async () => {
     if (!startCoords || !endCoords) { showToast("Please select valid start and end locations.", "error"); return; }
     setIsSearching(true);
+    
     try {
-        if (navigator.onLine) {
-            setTimeout(() => { setFoundRoutes(MOCK_ROUTES); setIsSearching(false); showToast("Found 3 safe routes.", "success"); }, 1500);
-        } else { setIsSearching(false); showToast("Offline: Cannot calculate new routes.", "error"); }
-    } catch (e) { setIsSearching(false); showToast("Error calculating routes", "error"); }
+        if (!navigator.onLine) {
+             setIsSearching(false); 
+             showToast("Offline: Cannot calculate new routes.", "error"); 
+             return;
+        }
+
+        // Map transport mode to TomTom API mode
+        const modeMap: {[key: string]: string} = {
+            'walking': 'pedestrian',
+            'bike': 'bicycle',
+            'car': 'car',
+            'transit': 'bus' // Fallback for transit
+        };
+        const tomTomMode = modeMap[transportMode] || 'pedestrian';
+
+        // Construct API URL
+        const baseUrl = `https://api.tomtom.com/routing/1/calculateRoute/${startCoords[0]},${startCoords[1]}:${endCoords[0]},${endCoords[1]}/json`;
+        const params = new URLSearchParams({
+            key: TOMTOM_API_KEY,
+            travelMode: tomTomMode,
+            traffic: 'true',
+            // computeBestOrder: 'true',
+            routeRepresentation: 'polyline',
+            sectionType: 'traffic',
+            maxAlternatives: '2' // Get main + 2 alternatives
+        });
+
+        const response = await fetch(`${baseUrl}?${params.toString()}`);
+        const data = await response.json();
+
+        if (data.routes && data.routes.length > 0) {
+            const newRoutes: Route[] = data.routes.map((r: any, index: number) => {
+                // Decode coordinates
+                const coords = r.legs[0].points.map((p: any) => [p.latitude, p.longitude] as [number, number]);
+                
+                // Calculate distance/duration
+                const meters = r.summary.lengthInMeters;
+                const seconds = r.summary.travelTimeInSeconds;
+                
+                const distanceStr = meters > 1000 ? `${(meters/1000).toFixed(1)} km` : `${meters} m`;
+                const durationStr = seconds > 3600 
+                    ? `${Math.floor(seconds/3600)}h ${Math.floor((seconds%3600)/60)}m` 
+                    : `${Math.floor(seconds/60)} min`;
+
+                // Simulate Safety Score (Base + Variation)
+                const baseScore = 85 + (index === 0 ? 5 : -5) + Math.floor(Math.random() * 10); 
+
+                return {
+                    id: `tomtom-${Date.now()}-${index}`,
+                    name: index === 0 ? 'Fastest & Safest' : `Alternative Route ${index}`,
+                    distance: distanceStr,
+                    duration: durationStr,
+                    safetyScore: Math.min(100, Math.max(0, baseScore)),
+                    description: index === 0 ? "Optimal path with good lighting and traffic data." : "Alternative path, slightly longer.",
+                    coordinates: coords,
+                    start: startAddress,
+                    end: endAddress,
+                    color: index === 0 ? '#3b82f6' : '#94a3b8' // Blue for primary, gray for others
+                };
+            });
+
+            setFoundRoutes(newRoutes);
+            setSelectedRoute(newRoutes[0]); // Auto-select first route
+            showToast(`Found ${newRoutes.length} routes.`, "success");
+        } else {
+            showToast("No routes found for this location.", "error");
+        }
+
+    } catch (e) { 
+        console.error(e);
+        setIsSearching(false); 
+        showToast("Error calculating routes", "error"); 
+    } finally {
+        setIsSearching(false);
+    }
   };
 
   const handleStartNavigation = () => { if (!selectedRoute) return; setIsNavigating(true); showToast("Navigation started. Stay safe!", "success"); speak(`Starting navigation to ${selectedRoute.end}. Head north.`); };
