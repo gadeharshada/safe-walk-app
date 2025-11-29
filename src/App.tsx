@@ -192,6 +192,31 @@ const apiService = {
     }
   },
 
+  updateContacts: async (contacts: any[]) => {
+    const user = storage.getUser();
+    if (!user || !user.id) return;
+
+    try {
+      const response = await fetch(`{API_BASE_URL}/auth/contacts`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId: user.id, 
+          contacts: contacts 
+        })
+      });
+      
+      const data = await response.json();
+      if(response.ok) {
+          console.log("Contacts synced to DB");
+          // Update local cache so it persists on refresh immediately
+          storage.saveUser({ ...user, emergencyContacts: contacts });
+      }
+    } catch (e) {
+      console.error("Failed to sync contacts:", e);
+    }
+  },
+
   // Helper: Fetch Profile
   fetchUserProfile: async (): Promise<User> => {
       const token = storage.getToken();
@@ -1308,12 +1333,19 @@ const ContactsView = ({ user, setUser, showToast, onSOSClick }: ContactsViewProp
         }
         if (user) {
             const contact = { 
-                id: Date.now(), 
+                id: Date.now().toString(), 
                 name: newContact.name, 
                 phone: newContact.phone, 
                 relationship: newContact.relationship 
             };
             const updatedContacts = [...(user.emergencyContacts || []), contact];
+            // const updatedUser = { ...user, emergencyContacts: updatedContacts };
+            const updatedUser = { 
+               ...user, 
+               emergencyContacts: updatedContacts as any 
+            };
+            setUser(updatedUser);
+
             
             try {
                 // await apiService.updateProfile({ emergencyContacts: updatedContacts });
@@ -1327,6 +1359,7 @@ const ContactsView = ({ user, setUser, showToast, onSOSClick }: ContactsViewProp
                 console.error("Failed to save contact", e); 
                 showToast("Failed to save contact to server.", "error"); 
             }
+            await apiService.updateContacts(updatedContacts);
         }
     };
 
@@ -1343,6 +1376,7 @@ const ContactsView = ({ user, setUser, showToast, onSOSClick }: ContactsViewProp
                  console.error("Failed to delete contact", e); 
                  showToast("Failed to remove contact from server.", "error"); 
              }
+             await apiService.updateContacts(updatedContacts);
         }
     }
 
