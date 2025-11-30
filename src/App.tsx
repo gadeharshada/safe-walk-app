@@ -197,7 +197,7 @@ const apiService = {
     if (!user || !user.id) return;
 
     try {
-      const response = await fetch(`{API_BASE_URL}/auth/contacts`, {
+      const response = await fetch(`${API_BASE_URL}/auth/contacts`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -210,6 +210,9 @@ const apiService = {
           console.log("Contacts synced to DB");
           // Update local cache so it persists on refresh immediately
           storage.saveUser({ ...user, emergencyContacts: contacts });
+      }
+      else {
+          console.error("Server returned error:", response.status);
       }
     } catch (e) {
       console.error("Failed to sync contacts:", e);
